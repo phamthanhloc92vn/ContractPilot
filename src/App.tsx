@@ -309,11 +309,39 @@ const PDFSection = ({
     scanProgress?: string;
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDragging, setIsDragging] = useState(false);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) onFileSelect(file);
         e.target.value = '';
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file && file.type === 'application/pdf') {
+            onFileSelect(file);
+        }
     };
 
     return (
@@ -323,7 +351,14 @@ const PDFSection = ({
 
             <div
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-200 hover:border-[#0d59f2]/40 rounded-2xl p-6 flex flex-col items-center justify-center text-center group cursor-pointer transition-all duration-300 bg-slate-50/50 hover:bg-[#0d59f2]/5"
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center group cursor-pointer transition-all duration-300 ${isDragging
+                        ? 'border-[#0d59f2] bg-[#0d59f2]/10 scale-[1.01]'
+                        : 'border-slate-200 hover:border-[#0d59f2]/40 bg-slate-50/50 hover:bg-[#0d59f2]/5'
+                    }`}
             >
                 <div className="w-12 h-12 bg-[#0d59f2]/10 rounded-2xl flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
                     <Upload className="w-6 h-6 text-[#0d59f2]" />
