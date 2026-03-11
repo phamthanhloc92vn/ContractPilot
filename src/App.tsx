@@ -300,6 +300,9 @@ const PDFSection = ({
     onFileSelect,
     targetPage,
     scanProgress,
+    scanProgressPct,
+    selectedContractType,
+    onContractTypeChange,
 }: {
     isScanning: boolean;
     onScan: () => void;
@@ -307,6 +310,9 @@ const PDFSection = ({
     onFileSelect: (file: File) => void;
     targetPage?: number;
     scanProgress?: string;
+    scanProgressPct?: number;
+    selectedContractType: string;
+    onContractTypeChange: (code: string) => void;
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -348,6 +354,21 @@ const PDFSection = ({
         <div className="w-[38%] shrink-0 flex flex-col gap-4 p-6 overflow-y-auto bg-white border-r border-slate-200">
 
             <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileChange} />
+
+            {/* Contract Type Selector */}
+            <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loại hợp đồng</label>
+                <select
+                    value={selectedContractType}
+                    onChange={(e) => onContractTypeChange(e.target.value)}
+                    disabled={isScanning}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d59f2]/20 focus:border-[#0d59f2] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {CONTRACT_TYPES.map((ct) => (
+                        <option key={ct.code} value={ct.code}>{ct.title}</option>
+                    ))}
+                </select>
+            </div>
 
             <div
                 onClick={() => fileInputRef.current?.click()}
@@ -392,10 +413,13 @@ const PDFSection = ({
                 <div className="space-y-2">
                     <div className="flex justify-between text-xs text-slate-500 font-medium">
                         <span>{scanProgress ?? 'Scanning...'}</span>
-                        <span>AI analyzing</span>
+                        <span className="font-bold text-[#0d59f2]">{scanProgressPct ?? 0}%</span>
                     </div>
                     <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#0d59f2] rounded-full animate-pulse w-3/4" />
+                        <div
+                            className="h-full bg-[#0d59f2] rounded-full transition-all duration-700 ease-out"
+                            style={{ width: `${scanProgressPct ?? 5}%` }}
+                        />
                     </div>
                 </div>
             )}
@@ -572,11 +596,17 @@ const AnalysisSection = ({
     onGoToPage,
     scanError,
     scores,
+    isSyncing,
+    onSync,
+    lastSynced,
 }: {
     risks: RiskCard[];
     onGoToPage: (page: number) => void;
     scanError?: string;
     scores?: ContractScores;
+    isSyncing: boolean;
+    onSync: () => void;
+    lastSynced?: string;
 }) => {
     const [activeTab, setActiveTab] = useState<TabCategory>('Vận hành');
     const [viewMode, setViewMode] = useState<'risks' | 'prompts'>('risks');
@@ -685,9 +715,31 @@ const AnalysisSection = ({
 
             {/* Sticky sync button */}
             <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-t from-slate-50/95 via-slate-50/80 to-transparent">
-                <button className="w-full py-4 bg-[#10b981] hover:bg-[#059669] text-white font-bold rounded-2xl shadow-xl shadow-emerald-200 flex items-center justify-center gap-3 transition-all active:scale-[0.98]">
-                    <Database className="w-5 h-5" />
-                    Duyệt & Đồng bộ Google Sheets 📊
+                {lastSynced && (
+                    <p className="text-center text-[10px] text-emerald-600 font-semibold mb-2">
+                        ✓ Đã đồng bộ lúc {lastSynced}
+                    </p>
+                )}
+                <button
+                    onClick={onSync}
+                    disabled={isSyncing || risks.length === 0}
+                    className={`w-full py-4 font-bold rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] ${
+                        isSyncing || risks.length === 0
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                            : 'bg-[#10b981] hover:bg-[#059669] text-white shadow-emerald-200'
+                    }`}
+                >
+                    {isSyncing ? (
+                        <>
+                            <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                            Đang đồng bộ...
+                        </>
+                    ) : (
+                        <>
+                            <Database className="w-5 h-5" />
+                            Duyệt &amp; Đồng bộ Google Sheets 📊
+                        </>
+                    )}
                 </button>
             </div>
         </div>
@@ -698,12 +750,15 @@ const AnalysisSection = ({
 const App = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
-    const [selectedContractType] = useState(CONTRACT_TYPES[0].code);
+    const [selectedContractType, setSelectedContractType] = useState(CONTRACT_TYPES[0].code);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [targetPage, setTargetPage] = useState<number | undefined>(undefined);
     const [risks, setRisks] = useState<RiskCard[]>([]);
     const [scanError, setScanError] = useState<string | undefined>(undefined);
     const [scanProgress, setScanProgress] = useState<string | undefined>(undefined);
+    const [scanProgressPct, setScanProgressPct] = useState<number>(0);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSynced, setLastSynced] = useState<string | undefined>(undefined);
 
     // Deterministic score — recalculated whenever risks change
     const scores = risks.length > 0 ? calculateScores(risks) : undefined;
@@ -714,10 +769,12 @@ const App = () => {
         setScanError(undefined);
         setRisks([]);
         setScanProgress('Đang đọc file PDF...');
+        setScanProgressPct(5);
 
         try {
             // Step 1: Extract text from each page
             const pages = await extractTextPerPage(selectedFile);
+            setScanProgressPct(30);
 
             // Step 2: Get API config from localStorage
             const apiKey = localStorage.getItem('contractpilot_api_key') ?? '';
@@ -726,12 +783,26 @@ const App = () => {
             const contractTitle = contractType?.title ?? 'Hợp đồng';
 
             // Step 3: Call AI analysis
-            const result = await analyzeWithAI(pages, contractTitle, apiKey, model, setScanProgress);
+            const result = await analyzeWithAI(
+                pages,
+                contractTitle,
+                apiKey,
+                model,
+                (msg) => {
+                    setScanProgress(msg);
+                    // Map progress messages to percentages
+                    if (msg.includes('đọc') || msg.includes('PDF')) setScanProgressPct(15);
+                    else if (msg.includes('trang ảnh') || msg.includes('scan')) setScanProgressPct(35);
+                    else if (msg.includes('gửi')) setScanProgressPct(50);
+                    else if (msg.includes('xử lý') || msg.includes('kết quả')) setScanProgressPct(90);
+                },
+            );
+
+            setScanProgressPct(100);
 
             if (Array.isArray(result)) {
                 setRisks(result);
             } else {
-                // It's an AnalysisError
                 setScanError(result.message);
             }
         } catch (err) {
@@ -739,12 +810,53 @@ const App = () => {
         } finally {
             setIsScanning(false);
             setScanProgress(undefined);
+            setScanProgressPct(0);
         }
     };
 
     const handleGoToPage = (page: number) => {
         setTargetPage(undefined);
         setTimeout(() => setTargetPage(page), 50);
+    };
+
+    const handleSync = async () => {
+        const webhookUrl = localStorage.getItem('contractpilot_webhook_url') ?? '';
+        if (!webhookUrl) {
+            alert('Chưa cấu hình Google Sheets Webhook URL. Vào ⚙️ Settings để nhập URL.');
+            return;
+        }
+        setIsSyncing(true);
+        try {
+            const payload = {
+                syncedAt: new Date().toISOString(),
+                contractType: CONTRACT_TYPES.find((ct) => ct.code === selectedContractType)?.title ?? '',
+                totalRisks: risks.length,
+                highCount: risks.filter((r) => r.level === 'High').length,
+                mediumCount: risks.filter((r) => r.level === 'Medium').length,
+                lowCount: risks.filter((r) => r.level === 'Low').length,
+                overallScore: scores?.overall ?? 0,
+                risks: risks.map((r) => ({
+                    code: r.subcategoryCode,
+                    tab: r.tab,
+                    level: r.level,
+                    pageRef: r.pageRef ?? '',
+                    issue: r.issue,
+                    recommendation: r.recommendation,
+                })),
+            };
+            await fetch(webhookUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const now = new Date();
+            setLastSynced(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
+        } catch (err) {
+            alert(`Lỗi đồng bộ: ${(err as Error).message}`);
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     return (
@@ -758,12 +870,18 @@ const App = () => {
                     onFileSelect={setSelectedFile}
                     targetPage={targetPage}
                     scanProgress={scanProgress}
+                    scanProgressPct={scanProgressPct}
+                    selectedContractType={selectedContractType}
+                    onContractTypeChange={setSelectedContractType}
                 />
                 <AnalysisSection
                     risks={risks}
                     onGoToPage={handleGoToPage}
                     scanError={scanError}
                     scores={scores}
+                    isSyncing={isSyncing}
+                    onSync={handleSync}
+                    lastSynced={lastSynced}
                 />
             </main>
             <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
